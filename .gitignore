@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.Python
+.venv/
+venv/
+env/
+
+# Panel state
+panel.sqlite3
+panel-server.log
+panel-server.pid
+
+# Env
+.env
+
+# Editors
+.vscode/
+.idea/
+*.swp
+.DS_Store

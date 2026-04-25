@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# frappe-desk — tiny launcher/controller for the Frappe Desk panel.
+# Usage:
+#   frappe-desk start         # run in foreground
+#   frappe-desk start --bg    # run in background with log file
+#   frappe-desk stop          # stop the background instance
+#   frappe-desk status        # show whether it's running
+#   frappe-desk logs          # tail the background log
+
+set -euo pipefail
+
+# Resolve the directory this script lives in (so it works from anywhere)
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PID_FILE="$SCRIPT_DIR/panel-server.pid"
+LOG_FILE="$SCRIPT_DIR/panel-server.log"
+PY="${FRAPPE_DESK_PYTHON:-python3}"
+PORT="${PORT:-5050}"
+HOST="${HOST:-127.0.0.1}"
+
+# Prefer the project's .venv if present
+if [ -f "$SCRIPT_DIR/.venv/bin/python" ]; then
+  PY="$SCRIPT_DIR/.venv/bin/python"
+fi
+
+cmd="${1:-}"
+shift || true
+
+is_running() {
+  if [ -f "$PID_FILE" ]; then
+    local pid
+    pid=$(cat "$PID_FILE" 2>/dev/null || echo "")
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      return 0
+    fi
+  fi
+  return 1
+}
+
+case "$cmd" in
+  start)
+    bg=0
+    for arg in "$@"; do
+      case "$arg" in
+        --bg|-b) bg=1 ;;
+      esac
+    done
+    if is_running; then
+      echo "Already running (PID $(cat "$PID_FILE")) — http://$HOST:$PORT/"
+      exit 0
+    fi
+    cd "$SCRIPT_DIR"
+    if [ "$bg" -eq 1 ]; then
+      nohup "$PY" app.py > "$LOG_FILE" 2>&1 &
+      echo $! > "$PID_FILE"
+      sleep 1
+      echo "Started in background (PID $(cat "$PID_FILE"))"
+      echo "Open http://$HOST:$PORT/  ·  logs: $LOG_FILE"
+    else
+      echo "Starting Frappe Desk at http://$HOST:$PORT/ — Ctrl-C to stop."
+      exec "$PY" app.py
+    fi
+    ;;
+
+  stop)
+    if is_running; then
+      pid=$(cat "$PID_FILE")
+      kill "$pid" 2>/dev/null || true
+      sleep 1
+      kill -9 "$pid" 2>/dev/null || true
+      rm -f "$PID_FILE"
+      echo "Stopped PID $pid"
+    else
+      echo "Not running."
+      rm -f "$PID_FILE"
+    fi
+    ;;
+
+  status)
+    if is_running; then
+      echo "Running (PID $(cat "$PID_FILE")) — http://$HOST:$PORT/"
+    else
+      echo "Not running."
+    fi
+    ;;
+
+  logs)
+    touch "$LOG_FILE"
+    tail -n 200 -f "$LOG_FILE"
+    ;;
+
+  ""|help|-h|--help)
+    cat <<EOF
+frappe-desk — control panel for Frappe/ERPNext local benches
+
+Commands:
+  start              Run in foreground (Ctrl-C to stop)
+  start --bg         Run in background, write PID to $PID_FILE
+  stop               Stop the background instance
+  status             Show running status
+  logs               Tail the background log
+
+Env:
+  PORT (default 5050), HOST (default 127.0.0.1)
+  FRAPPE_DESK_PYTHON — override which python to invoke
+EOF
+    ;;
+
+  *)
+    echo "Unknown command: $cmd" >&2
+    exit 2
+    ;;
+esac
